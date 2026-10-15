@@ -1,5 +1,3 @@
-# Bid-Compliance-System
-
 # 🚀 TenderIQ — Bid Compliance & Evaluation System
 
 **An intelligent platform for bid qualification, tender compliance verification, requirement traceability, and evaluation reporting.**
