@@ -60,7 +60,7 @@ Presents evaluation test results, requirement-match accuracy, and validation sum
 
 ### 5. Requirement Tracebility
 
-Presents evaluation test results, requirement-match accuracy, and validation summaries.
+Checks for Requirements of each bidder against the given tender and marks the percentage of completition.
 
 ![Evaluation Methodology](Screenshots/Requirement%20Tracebility.png)
 ---
