@@ -116,25 +116,13 @@ The dashboards provide several views of the evaluation process:
 
 ---
 
-## 🛠️ Technology Stack
-
-- **Power BI** — Dashboard development and data visualization
-- **HTML, CSS, JavaScript** — Interactive demonstration interface
-- **Three.js** — 3D workflow visualization
-- **Mermaid** — Workflow diagram embedded in the README
-- **Git & GitHub** — Version control and project documentation
-- **GitHub Pages** — Hosting the interactive HTML demonstration
-
-*The stack above describes the dashboard and demo components. Add any backend, database, or AI/ML technologies only if they are actually implemented in my project.*
-
----
-
 ## 📂 Repository Structure
 
 ```text
 Bid-Compliance-System/
 ├── README.md
 ├── LICENSE
+├── 3D-visualization.HTML
 ├── Screenshots/
 │   ├── Overview.png
 │   ├── Compliance Grid.png
@@ -156,8 +144,6 @@ The project demonstrates how dashboards and interactive workflow visualization c
 ## 👨‍💻 Author
 
 **Saral Singhal**
-
-[GitHub Profile](https://github.com/Saral2810)
 
 ---
 
