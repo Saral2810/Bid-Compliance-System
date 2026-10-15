@@ -1,4 +1,4 @@
-# 🚀 TenderIQ — Bid Compliance & Evaluation System
+# TenderIQ - A Bid Compliance & Evaluation System
 
 **An intelligent platform for bid qualification, tender compliance verification, requirement traceability, and evaluation reporting.**
 
@@ -11,9 +11,8 @@
 
 Explore the conceptual bid evaluation pipeline through an interactive 3D visualization.
 
-### [▶ Launch Interactive 3D Demo](https://saral2810.github.io/Bid-Compliance-System/)
+### [▶ Launch Interactive 3D Demo](https://saral2810.github.io/Bid-Compliance-System/3d_bid_compliance_system.html)
 
-> **Note:** The demo link works after you publish `docs/index.html` using GitHub Pages.
 
 ---
 
