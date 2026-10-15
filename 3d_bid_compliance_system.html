@@ -1,0 +1,1600 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>3D Bid Compliance & Verification Engine</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            background-color: #060a12;
+            font-family: 'Inter', sans-serif;
+            color: #e2e8f0;
+            user-select: none;
+        }
+        .mono {
+            font-family: 'JetBrains Mono', monospace;
+        }
+        #canvas-container {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            z-index: 1;
+        }
+        /* Glassmorphism HUD styling */
+        .hud-glass {
+            background: rgba(11, 18, 31, 0.78);
+            backdrop-filter: blur(14px);
+            -webkit-backdrop-filter: blur(14px);
+            border: 1px solid rgba(56, 189, 248, 0.2);
+            box-shadow: 0 12px 40px -8px rgba(0, 0, 0, 0.7), inset 0 1px 0 0 rgba(255, 255, 255, 0.08);
+        }
+        .hud-glass-interactive:hover {
+            border-color: rgba(56, 189, 248, 0.5);
+            background: rgba(15, 23, 42, 0.88);
+        }
+        /* Custom scrollbar */
+        ::-webkit-scrollbar {
+            width: 5px;
+            height: 5px;
+        }
+        ::-webkit-scrollbar-track {
+            background: rgba(15, 23, 42, 0.5);
+        }
+        ::-webkit-scrollbar-thumb {
+            background: rgba(56, 189, 248, 0.35);
+            border-radius: 9999px;
+        }
+        /* 3D HTML Floating Labels */
+        .node-label {
+            position: absolute;
+            transform: translate(-50%, -100%);
+            pointer-events: none;
+            transition: opacity 0.2s ease, transform 0.2s ease;
+            z-index: 5;
+        }
+        .pulse-dot {
+            box-shadow: 0 0 12px currentColor;
+        }
+        @keyframes scanline {
+            0% { transform: translateY(-100%); }
+            100% { transform: translateY(1000%); }
+        }
+        .scanline-overlay {
+            background: linear-gradient(to bottom, transparent, rgba(56, 189, 248, 0.06), transparent);
+            height: 60px;
+            width: 100%;
+            position: absolute;
+            top: 0;
+            left: 0;
+            pointer-events: none;
+            animation: scanline 8s linear infinite;
+        }
+    </style>
+</head>
+<body class="relative w-screen h-screen overflow-hidden">
+
+    <!-- 3D WebGL Canvas -->
+    <div id="canvas-container"></div>
+
+    <!-- Projected 3D Labels Container -->
+    <div id="labels-container" class="absolute inset-0 pointer-events-none z-10 overflow-hidden"></div>
+
+    <!-- TOP NAVIGATION & SIMULATION BAR -->
+    <header class=" relative z-20 flex flex-wrap items-center justify-between gap-4 px-5 py-3.5 m-3 rounded-2xl hud-glass">
+        <!-- Brand & System Status -->
+        <div class="flex items-center gap-3.5">
+            <div class="relative flex items-center justify-center w-10 h-10 rounded-xl bg-sky-500/10 border border-sky-400/30 text-sky-400">
+                <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.75" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"></path>
+                </svg>
+                <span id="system-pulse" class="absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full bg-emerald-400 pulse-dot"></span>
+            </div>
+            <div>
+                <div class="flex items-center gap-2">
+                    <h1 class="text-base sm:text-lg font-bold tracking-tight text-white">TenderIQ <span class="font-light text-sky-400">3D Compliance Engine</span></h1>
+                    <span class="hidden sm:inline-block px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider bg-sky-500/20 text-sky-300 rounded border border-sky-400/30 mono">v4.8 AI-Core</span>
+                </div>
+                <p class="text-xs text-slate-400">Real-Time RFP Requirement Matrix & Automated Bid Verification Pipeline</p>
+            </div>
+        </div>
+
+        <!-- Simulation Scenario Switcher -->
+        <div class="flex flex-wrap items-center gap-2">
+            <span class="text-xs font-medium text-slate-400 mr-1 hidden md:inline">Simulation Mode:</span>
+            <div class="flex p-1 rounded-xl bg-slate-900/90 border border-slate-700/70">
+                <button id="btn-mode-compliant" onclick="setScenario('compliant')" class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 shadow-sm">
+                    <span class="w-2 h-2 rounded-full bg-emerald-400"></span>
+                    Compliant Flow (98.4%)
+                </button>
+                <button id="btn-mode-warning" onclick="setScenario('conditional')" class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all text-slate-400 hover:text-slate-200 border border-transparent">
+                    <span class="w-2 h-2 rounded-full bg-amber-400"></span>
+                    Minor Gaps (79.5%)
+                </button>
+                <button id="btn-mode-noncompliant" onclick="setScenario('noncompliant')" class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all text-slate-400 hover:text-slate-200 border border-transparent">
+                    <span class="w-2 h-2 rounded-full bg-rose-500"></span>
+                    Non-Compliant (41.2%)
+                </button>
+            </div>
+
+            <!-- Action Controls -->
+            <button onclick="triggerBurstInspection()" class="px-3 py-2 rounded-xl text-xs font-semibold bg-sky-500 hover:bg-sky-400 text-slate-950 transition shadow-lg shadow-sky-500/20 flex items-center gap-1.5">
+                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.2" d="M13 10V3L4 14h7v7l9-11h-7z"></path>
+                </svg>
+                <span>Inject Bid Batch</span>
+            </button>
+
+            <button onclick="resetCameraView()" title="Reset 3D Camera" class="p-2 rounded-xl hud-glass hud-glass-interactive text-slate-300 hover:text-white transition">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"></path>
+                </svg>
+            </button>
+        </div>
+    </header>
+
+    <!-- LEFT PANEL: WORKFLOW PIPELINE QUICK-NAV & METRICS SUMMARY -->
+    <aside class="fixed top-24 left-3 z-20 w-72 hidden lg:flex flex-col gap-3 max-h-[calc(100vh-140px)]">
+        <!-- Executive Compliance Score Card -->
+        <div class="p-4 rounded-2xl hud-glass relative overflow-hidden">
+            <div class="scanline-overlay"></div>
+            <div class="flex items-center justify-between mb-2">
+                <span class="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Live Compliance Index</span>
+                <span id="badge-decision" class="px-2 py-0.5 text-[10px] font-bold uppercase rounded bg-emerald-500/20 text-emerald-300 border border-emerald-400/30 mono">AUTO-APPROVED</span>
+            </div>
+            <div class="flex items-baseline justify-between my-1">
+                <div id="metric-global-score" class="text-3xl font-extrabold text-emerald-400 mono">98.4%</div>
+                <div class="text-right">
+                    <div class="text-[11px] text-slate-400">Mandatory Clauses</div>
+                    <div id="metric-clauses-count" class="text-xs font-semibold text-white mono">142 / 142 Met</div>
+                </div>
+            </div>
+            <!-- Progress Bar -->
+            <div class="w-full h-2 bg-slate-800 rounded-full overflow-hidden mt-2">
+                <div id="bar-global-score" class="h-full bg-gradient-to-r from-sky-400 to-emerald-400 transition-all duration-500" style="width: 98.4%"></div>
+            </div>
+            <div class="grid grid-cols-3 gap-2 mt-3 pt-3 border-t border-slate-800/80 text-center">
+                <div>
+                    <div class="text-[10px] text-slate-400">Packets/s</div>
+                    <div id="metric-throughput" class="text-xs font-bold text-sky-300 mono">48.2 MB/s</div>
+                </div>
+                <div>
+                    <div class="text-[10px] text-slate-400">Critical Risks</div>
+                    <div id="metric-risks" class="text-xs font-bold text-emerald-400 mono">0 Found</div>
+                </div>
+                <div>
+                    <div class="text-[10px] text-slate-400">Confidence</div>
+                    <div id="metric-confidence" class="text-xs font-bold text-indigo-300 mono">99.6%</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 6 Workflow Nodes Directory -->
+        <div class="p-3.5 rounded-2xl hud-glass flex-1 overflow-y-auto">
+            <div class="flex items-center justify-between mb-2.5">
+                <h2 class="text-xs font-semibold uppercase tracking-wider text-slate-300">Workflow Stages (6 Nodes)</h2>
+                <span class="text-[10px] text-sky-400">Click to Inspect</span>
+            </div>
+            <div id="stage-list" class="space-y-1.5">
+                <!-- Populated dynamically via JS -->
+            </div>
+        </div>
+    </aside>
+
+    <!-- RIGHT PANEL: SELECTED NODE TELEMETRY & COMPLIANCE INSPECTOR -->
+    <aside id="inspector-panel" class="fixed top-24 right-3 z-20 w-80 sm:w-96 max-h-[calc(100vh-130px)] flex flex-col rounded-2xl hud-glass overflow-hidden transition-all duration-300">
+        <!-- Node Header -->
+        <div class="p-4 border-b border-slate-800/80 flex items-start justify-between gap-2 bg-slate-900/50">
+            <div class="flex items-center gap-3">
+                <div id="inspector-icon-box" class="w-10 h-10 rounded-xl flex items-center justify-center bg-sky-500/20 border border-sky-400/40 text-sky-300 font-bold mono text-sm">
+                    04
+                </div>
+                <div>
+                    <div class="flex items-center gap-2">
+                        <span id="inspector-stage-tag" class="text-[10px] font-semibold uppercase tracking-wider text-sky-400 mono">STAGE 04 // CORE ENGINE</span>
+                    </div>
+                    <h2 id="inspector-title" class="text-base font-bold text-white leading-snug">Automated Compliance Verification Engine</h2>
+                </div>
+            </div>
+            <button onclick="toggleInspectorMobile()" class="lg:hidden p-1.5 text-slate-400 hover:text-white rounded-lg">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                </svg>
+            </button>
+        </div>
+
+        <!-- Scrollable Inspector Body -->
+        <div class="p-4 overflow-y-auto space-y-4 text-xs">
+            <!-- Status Banner -->
+            <div id="inspector-status-box" class="p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-between">
+                <div class="flex items-center gap-2">
+                    <span id="inspector-status-dot" class="w-2.5 h-2.5 rounded-full bg-emerald-400 pulse-dot"></span>
+                    <span id="inspector-status-text" class="font-semibold text-emerald-300">All Mandatory Controls Verified</span>
+                </div>
+                <span id="inspector-latency" class="mono text-[11px] text-slate-300">42ms</span>
+            </div>
+
+            <!-- Description -->
+            <p id="inspector-desc" class="text-slate-300 leading-relaxed">
+                Cross-references extracted RFP clauses against uploaded vendor bid responses using semantic vector matching and deterministic rule evaluators.
+            </p>
+
+            <!-- Key Stage Metrics Grid -->
+            <div>
+                <h3 class="text-[11px] font-semibold uppercase tracking-wider text-slate-400 mb-2">Stage Telemetry & KPIs</h3>
+                <div id="inspector-kpis" class="grid grid-cols-2 gap-2">
+                    <!-- Dynamic KPI cards -->
+                </div>
+            </div>
+
+            <!-- Requirement / Clause Verification Matrix -->
+            <div>
+                <div class="flex items-center justify-between mb-2">
+                    <h3 class="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Clause Verification Breakdown</h3>
+                    <span id="inspector-matrix-badge" class="text-[10px] mono text-sky-400">Live Audit Log</span>
+                </div>
+                <div id="inspector-checks" class="space-y-2">
+                    <!-- Dynamic Check Items -->
+                </div>
+            </div>
+
+            <!-- Live Packet Stream Console -->
+            <div>
+                <div class="flex items-center justify-between mb-1.5">
+                    <h3 class="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Real-Time Verification Stream</h3>
+                    <span class="flex items-center gap-1 text-[10px] text-emerald-400 mono">
+                        <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping"></span> LIVE
+                    </span>
+                </div>
+                <div id="live-log-console" class="p-2.5 rounded-xl bg-slate-950/90 border border-slate-800 mono text-[11px] text-slate-300 space-y-1 h-28 overflow-y-auto">
+                    <!-- Live logs appended here -->
+                </div>
+            </div>
+        </div>
+
+        <!-- Inspector Footer Controls -->
+        <div class="p-3 border-t border-slate-800/80 bg-slate-900/60 flex items-center justify-between">
+            <button onclick="cycleSelectedNode(-1)" class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-medium transition flex items-center gap-1">
+                <span>&larr; Prev Node</span>
+            </button>
+            <button onclick="focusCameraOnNode(selectedNodeId)" class="px-3 py-1.5 rounded-lg bg-sky-500/20 hover:bg-sky-500/30 text-sky-300 border border-sky-400/30 text-xs font-medium transition">
+                Lock Camera
+            </button>
+            <button onclick="cycleSelectedNode(1)" class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-medium transition flex items-center gap-1">
+                <span>Next Node &rarr;</span>
+            </button>
+        </div>
+    </aside>
+
+    <!-- BOTTOM INTERACTION BAR & CAMERA HINTS -->
+    <footer class="fixed bottom-3 left-3 right-3 z-20 pointer-events-none flex flex-wrap items-center justify-between gap-2">
+        <div class="pointer-events-auto px-3.5 py-2 rounded-xl hud-glass flex items-center gap-4 text-xs text-slate-300">
+            <span class="flex items-center gap-1.5">
+                <kbd class="px-1.5 py-0.5 text-[10px] bg-slate-800 text-sky-300 rounded border border-slate-700 mono">Left Drag</kbd>
+                <span>Orbit 3D</span>
+            </span>
+            <span class="hidden sm:flex items-center gap-1.5">
+                <kbd class="px-1.5 py-0.5 text-[10px] bg-slate-800 text-sky-300 rounded border border-slate-700 mono">Right Drag</kbd>
+                <span>Pan</span>
+            </span>
+            <span class="flex items-center gap-1.5">
+                <kbd class="px-1.5 py-0.5 text-[10px] bg-slate-800 text-sky-300 rounded border border-slate-700 mono">Scroll</kbd>
+                <span>Zoom</span>
+            </span>
+            <span class="flex items-center gap-1.5">
+                <kbd class="px-1.5 py-0.5 text-[10px] bg-slate-800 text-sky-300 rounded border border-slate-700 mono">Click Node</kbd>
+                <span>Inspect Telemetry</span>
+            </span>
+        </div>
+
+        <!-- Packet Speed & Auto-Rotate Toggles -->
+        <div class="pointer-events-auto px-3.5 py-2 rounded-xl hud-glass flex items-center gap-3 text-xs">
+            <label class="flex items-center gap-2 cursor-pointer text-slate-300 hover:text-white">
+                <input type="checkbox" id="toggle-autorotate" onchange="toggleAutoRotate(this.checked)" class="rounded bg-slate-800 border-slate-600 text-sky-500 focus:ring-0">
+                <span>Auto-Orbit</span>
+            </label>
+            <div class="h-3 w-[1px] bg-slate-700"></div>
+            <div class="flex items-center gap-2">
+                <span class="text-slate-400">Flow Speed:</span>
+                <input type="range" id="slider-speed" min="0.3" max="2.5" step="0.1" value="1.0" oninput="updateFlowSpeed(this.value)" class="w-20 accent-sky-400 cursor-pointer">
+            </div>
+        </div>
+    </footer>
+
+    <script>
+        // ============================================================================
+        // 1. WORKFLOW NODES & SCENARIO DATA ARCHITECTURE
+        // ============================================================================
+        const WORKFLOW_NODES = [
+            {
+                id: 'rfp_ingestion',
+                code: '01',
+                stageTag: 'STAGE 01 // INGESTION GATEWAY',
+                name: 'RFP Ingestion & Parsing',
+                shortName: '1. RFP Ingestion',
+                position: { x: -15, y: 4.5, z: -2 },
+                color: 0x38bdf8, // Sky Blue
+                geometryType: 'octahedron',
+                description: 'Ingests multi-format solicitation packages (PDF, DOCX, XLSX, scanned annexes) via OCR and layout-aware document segmentation.',
+                scenarios: {
+                    compliant: {
+                        status: 'Optimal Parsing Complete',
+                        state: 'pass',
+                        latency: '18ms',
+                        kpis: [
+                            { label: 'Solicitation Docs', value: '14 Files (412 pgs)' },
+                            { label: 'OCR Token Accuracy', value: '99.94%' },
+                            { label: 'Tables Reconstructed', value: '68 / 68' },
+                            { label: 'Parse Throughput', value: '1,240 pgs/min' }
+                        ],
+                        checks: [
+                            { clause: 'Section L & M Solicitation Structure', status: 'PASS', detail: 'Hierarchical headings mapped 100%' },
+                            { clause: 'Pricing Schedule Annex B (.xlsx)', status: 'PASS', detail: 'Formulas & cell constraints extracted' },
+                            { clause: 'Scanned Security Addendum OCR', status: 'PASS', detail: 'Zero illegible glyphs detected' }
+                        ]
+                    },
+                    conditional: {
+                        status: 'Parsed with Minor OCR Warnings',
+                        state: 'warn',
+                        latency: '31ms',
+                        kpis: [
+                            { label: 'Solicitation Docs', value: '14 Files (412 pgs)' },
+                            { label: 'OCR Token Accuracy', value: '97.80%' },
+                            { label: 'Tables Reconstructed', value: '66 / 68' },
+                            { label: 'Manual Review Flags', value: '2 Legacy Scans' }
+                        ],
+                        checks: [
+                            { clause: 'Section L & M Solicitation Structure', status: 'PASS', detail: 'Hierarchical headings mapped' },
+                            { clause: 'Appendix D Legacy Blueprint Scan', status: 'WARN', detail: 'Low DPI stamp partially obscured' },
+                            { clause: 'Pricing Schedule Annex B (.xlsx)', status: 'PASS', detail: 'All line items parsed' }
+                        ]
+                    },
+                    noncompliant: {
+                        status: 'Ingestion Alert: Missing Addendum',
+                        state: 'fail',
+                        latency: '49ms',
+                        kpis: [
+                            { label: 'Solicitation Docs', value: '12 / 14 Files' },
+                            { label: 'Missing Amendments', value: 'Amendment #03' },
+                            { label: 'Corrupted Tables', value: '4 Unreadable' },
+                            { label: 'Baseline Integrity', value: 'Incomplete' }
+                        ],
+                        checks: [
+                            { clause: 'Mandatory RFP Amendment #03', status: 'FAIL', detail: 'Solicitation amendment missing from package' },
+                            { clause: 'Section L Formatting Baseline', status: 'PASS', detail: 'Standard schema loaded' },
+                            { clause: 'Annex C Compliance Matrix Template', status: 'WARN', detail: 'Schema mismatch on revision date' }
+                        ]
+                    }
+                }
+            },
+            {
+                id: 'req_extraction',
+                code: '02',
+                stageTag: 'STAGE 02 // NLP DECONSTRUCTION',
+                name: 'Requirement Extraction',
+                shortName: '2. Req Extraction',
+                position: { x: -8, y: 6.2, z: -4 },
+                color: 0x818cf8, // Indigo
+                geometryType: 'icosahedron',
+                description: 'Deploys domain-tuned NLP transformers to isolate "Shall / Must / Will" obligations, SLA thresholds, and disqualifying gate criteria.',
+                scenarios: {
+                    compliant: {
+                        status: '142 Mandatory Clauses Indexed',
+                        state: 'pass',
+                        latency: '27ms',
+                        kpis: [
+                            { label: 'Mandatory "Shall" Rules', value: '142 Extracted' },
+                            { label: 'Evaluation Weights', value: 'Tech 60 / Price 40' },
+                            { label: 'Entity Taxonomy', value: 'ISO / SOC2 / FedRAMP' },
+                            { label: 'Deconstruction Recall', value: '99.7%' }
+                        ],
+                        checks: [
+                            { clause: 'Cybersecurity Gate (ISO/IEC 27001)', status: 'PASS', detail: 'Tagged as Mandatory Pass/Fail Gate' },
+                            { clause: '99.99% Uptime SLA Obligation', status: 'PASS', detail: 'Quantitative threshold bound to rule #44' },
+                            { clause: 'Key Personnel Clearance Level', status: 'PASS', detail: '5 Roles mapped to CV requirements' }
+                        ]
+                    },
+                    conditional: {
+                        status: '3 Ambiguous RFP Clauses Flagged',
+                        state: 'warn',
+                        latency: '36ms',
+                        kpis: [
+                            { label: 'Mandatory "Shall" Rules', value: '142 Extracted' },
+                            { label: 'Ambiguity Detections', value: '3 Clauses' },
+                            { label: 'Cross-Ref Conflicts', value: '1 Section M vs C' },
+                            { label: 'Deconstruction Recall', value: '98.2%' }
+                        ],
+                        checks: [
+                            { clause: 'Data Residency Obligation (Sec C.4.2)', status: 'WARN', detail: 'Conflicting region definition in Annex A' },
+                            { clause: 'Cybersecurity Gate (ISO/IEC 27001)', status: 'PASS', detail: 'Tagged as Mandatory Pass/Fail Gate' },
+                            { clause: 'Liquidated Damages Cap', status: 'PASS', detail: 'Extracted threshold: 12% contract value' }
+                        ]
+                    },
+                    noncompliant: {
+                        status: 'Unmapped Disqualifying Criteria',
+                        state: 'fail',
+                        latency: '61ms',
+                        kpis: [
+                            { label: 'Mandatory "Shall" Rules', value: '142 Extracted' },
+                            { label: 'Unbound Requirements', value: '19 Unmapped' },
+                            { label: 'Conflict Severity', value: 'High (Sec L.9)' },
+                            { label: 'Taxonomy Coverage', value: '76.4%' }
+                        ],
+                        checks: [
+                            { clause: 'FedRAMP High Authorization Gate', status: 'FAIL', detail: 'Mandatory gate lacks matching bid evidence slot' },
+                            { clause: 'Buy-National Supply Chain Rule', status: 'FAIL', detail: 'Origin certification requirement unlinked' },
+                            { clause: 'Performance Bond Guarantee', status: 'WARN', detail: 'Surety threshold requires legal sign-off' }
+                        ]
+                    }
+                }
+            },
+            {
+                id: 'bid_upload',
+                code: '03',
+                stageTag: 'STAGE 03 // VENDOR SUBMISSION',
+                name: 'Bid Document Upload',
+                shortName: '3. Bid Upload',
+                position: { x: -11, y: -3.5, z: 3 },
+                color: 0x2dd4bf, // Teal
+                geometryType: 'cylinder',
+                description: 'Ingests our technical, management, commercial, and legal proposal volumes, indexing certifications, CVs, and pricing workbooks.',
+                scenarios: {
+                    compliant: {
+                        status: 'All 4 Bid Volumes Validated',
+                        state: 'pass',
+                        latency: '15ms',
+                        kpis: [
+                            { label: 'Proposal Volumes', value: 'Vol I - IV Complete' },
+                            { label: 'Page Limit Check', value: '94 / 100 Pages' },
+                            { label: 'Digital Signatures', value: 'PKI Verified' },
+                            { label: 'Evidence Artifacts', value: '38 Certs Attached' }
+                        ],
+                        checks: [
+                            { clause: 'Vol I: Technical Proposal Page Limit', status: 'PASS', detail: '94 pages (Strict limit: 100 pages)' },
+                            { clause: 'Vol II: Commercial Pricing Workbook', status: 'PASS', detail: 'Zero unpopulated CLIN cells' },
+                            { clause: 'Executive Authorized Signatory', status: 'PASS', detail: 'Cryptographic signature valid' }
+                        ]
+                    },
+                    conditional: {
+                        status: 'Formatting & Margin Warnings',
+                        state: 'warn',
+                        latency: '24ms',
+                        kpis: [
+                            { label: 'Proposal Volumes', value: 'Vol I - IV Uploaded' },
+                            { label: 'Page Limit Check', value: '100 / 100 Pages' },
+                            { label: 'Font Compliance', value: '2 Diagrams < 10pt' },
+                            { label: 'Evidence Artifacts', value: '36 / 38 Certs' }
+                        ],
+                        checks: [
+                            { clause: 'Section L Font Size Policy (11pt Arial)', status: 'WARN', detail: '2 architecture callouts use 8.5pt font' },
+                            { clause: 'Subcontractor Teaming Letters', status: 'WARN', detail: '1 letter awaiting countersignature' },
+                            { clause: 'Vol II: Commercial Pricing Workbook', status: 'PASS', detail: 'All CLIN totals balanced' }
+                        ]
+                    },
+                    noncompliant: {
+                        status: 'Critical Submission Deficiencies',
+                        state: 'fail',
+                        latency: '40ms',
+                        kpis: [
+                            { label: 'Proposal Volumes', value: 'Missing Vol IV' },
+                            { label: 'Page Limit Check', value: '114 / 100 (BREACH)' },
+                            { label: 'Expired Certificates', value: 'ISO Cert Expired' },
+                            { label: 'Blank Pricing Cells', value: '7 CLINs Missing' }
+                        ],
+                        checks: [
+                            { clause: 'Strict Page Count Cap (Max 100 pgs)', status: 'FAIL', detail: '114 pages uploaded — Risk of rejection' },
+                            { clause: 'ISO/IEC 27001 Certificate Artifact', status: 'FAIL', detail: 'Uploaded certificate expired 14 days ago' },
+                            { clause: 'Optional Year 3 Maintenance Pricing', status: 'FAIL', detail: '7 CLIN cells left blank in Annex B' }
+                        ]
+                    }
+                }
+            },
+            {
+                id: 'verification_engine',
+                code: '04',
+                stageTag: 'STAGE 04 // AI CORE VERIFIER',
+                name: 'Automated Compliance Verification Engine',
+                shortName: '4. Verification Engine',
+                position: { x: 0, y: 1.0, z: 0 },
+                color: 0x0ea5e9, // Core Electric Blue
+                geometryType: 'core_reactor',
+                description: 'Central neural & deterministic compliance engine. Aligns every RFP requirement vector with bid response evidence and verifies quantitative compliance.',
+                scenarios: {
+                    compliant: {
+                        status: 'All Mandatory Controls Verified',
+                        state: 'pass',
+                        latency: '42ms',
+                        kpis: [
+                            { label: 'Rules Evaluated', value: '142 / 142 (100%)' },
+                            { label: 'Semantic Alignment', value: '98.9% Match' },
+                            { label: 'False Positive Rate', value: '< 0.08%' },
+                            { label: 'Cross-Vol Consistency', value: '100% Synced' }
+                        ],
+                        checks: [
+                            { clause: 'Traceability Matrix (RFP <-> Bid)', status: 'PASS', detail: '142/142 clauses answered with citations' },
+                            { clause: 'Tech vs Pricing WBS Alignment', status: 'PASS', detail: 'Labor hours match technical staffing plan' },
+                            { clause: 'Mandatory SLA & Security Assertions', status: 'PASS', detail: 'Zero exceptions taken to standard terms' }
+                        ]
+                    },
+                    conditional: {
+                        status: 'Partial Compliance — 6 Deviations',
+                        state: 'warn',
+                        latency: '58ms',
+                        kpis: [
+                            { label: 'Rules Evaluated', value: '142 / 142 (100%)' },
+                            { label: 'Fully Compliant', value: '131 Clauses' },
+                            { label: 'Partial / Caveated', value: '11 Clauses' },
+                            { label: 'Cross-Vol Consistency', value: '94.2% Synced' }
+                        ],
+                        checks: [
+                            { clause: 'SLA Response Time (15-min P1 target)', status: 'WARN', detail: 'Bid proposes 30-min response in Sec 4.2' },
+                            { clause: 'Tech vs Pricing WBS Alignment', status: 'WARN', detail: 'DevSecOps role hours differ by 4.5% across vols' },
+                            { clause: 'Mandatory Security Gate Controls', status: 'PASS', detail: 'All core encryption requirements met' }
+                        ]
+                    },
+                    noncompliant: {
+                        status: 'NON-COMPLIANT — 18 Gate Failures',
+                        state: 'fail',
+                        latency: '89ms',
+                        kpis: [
+                            { label: 'Rules Evaluated', value: '142 / 142' },
+                            { label: 'Disqualifying Fails', value: '18 Mandatory' },
+                            { label: 'Unanswered Clauses', value: '14 Omitted' },
+                            { label: 'Cross-Vol Conflict', value: 'Severe Drift' }
+                        ],
+                        checks: [
+                            { clause: 'Mandatory FedRAMP High Gate', status: 'FAIL', detail: 'Bid cites FedRAMP Moderate only — Auto-Disqualify' },
+                            { clause: 'Unlimited Liability Acceptance', status: 'FAIL', detail: 'Legal redline takes direct exception to Sec H.4' },
+                            { clause: '24/7 Sovereign SOC Requirement', status: 'FAIL', detail: 'No response found in Technical Volume' }
+                        ]
+                    }
+                }
+            },
+            {
+                id: 'risk_analysis',
+                code: '05',
+                stageTag: 'STAGE 05 // GAP & RISK DIAGNOSTICS',
+                name: 'Risk & Gap Analysis',
+                shortName: '5. Risk & Gap Analysis',
+                position: { x: 8.5, y: 4.8, z: -2.5 },
+                color: 0xf59e0b, // Amber / Diagnostic
+                geometryType: 'dodecahedron',
+                description: 'Simulates evaluator scoring deduction models, flags commercial/legal exposure, and generates auto-remediation language for bid gaps.',
+                scenarios: {
+                    compliant: {
+                        status: 'Zero Disqualifying Risks Detected',
+                        state: 'pass',
+                        latency: '22ms',
+                        kpis: [
+                            { label: 'Disqualification Risk', value: '0.0% (None)' },
+                            { label: 'Commercial Exposure', value: 'Low (Protected)' },
+                            { label: 'Win Probability Lift', value: '+18.5% Est.' },
+                            { label: 'Open Gap Tickets', value: '0 Remaining' }
+                        ],
+                        checks: [
+                            { clause: 'Evaluator Knock-Out Criteria Audit', status: 'PASS', detail: 'Zero pass/fail gates at risk' },
+                            { clause: 'Margin Erosion & SLA Penalty Sim', status: 'PASS', detail: 'Buffer covers 99.5th percentile risk' },
+                            { clause: 'Competitor Ghosting & Strengths', status: 'PASS', detail: '4 value discriminators highlighted' }
+                        ]
+                    },
+                    conditional: {
+                        status: 'Moderate Evaluation Point Deductions',
+                        state: 'warn',
+                        latency: '39ms',
+                        kpis: [
+                            { label: 'Disqualification Risk', value: '6.5% (Low-Mod)' },
+                            { label: 'Est. Point Deduction', value: '-8.5 / 100 Pts' },
+                            { label: 'Remediation Prompts', value: '6 Auto-Drafted' },
+                            { label: 'Open Gap Tickets', value: '6 Actionable' }
+                        ],
+                        checks: [
+                            { clause: 'P1 Incident SLA Exception Risk', status: 'WARN', detail: 'Est. -4.0 pt deduction in Technical eval' },
+                            { clause: 'Subcontractor Letter Pending', status: 'WARN', detail: 'Must resolve 24h prior to submission portal lock' },
+                            { clause: 'AI Remediation Patch Ready', status: 'PASS', detail: 'Suggested compliant rewrite generated' }
+                        ]
+                    },
+                    noncompliant: {
+                        status: 'HIGH RISK: Immediate Rejection Likely',
+                        state: 'fail',
+                        latency: '74ms',
+                        kpis: [
+                            { label: 'Disqualification Risk', value: '96.4% (CRITICAL)' },
+                            { label: 'Est. Point Deduction', value: '-48.0 / 100 Pts' },
+                            { label: 'Blocking Gate Breaches', value: '4 Fatal Flaws' },
+                            { label: 'Open Gap Tickets', value: '32 Critical' }
+                        ],
+                        checks: [
+                            { clause: 'Gate #1: Security Accreditation Deficit', status: 'FAIL', detail: 'Procurement rule mandates automatic rejection' },
+                            { clause: 'Gate #2: Page Count Limit Exceeded', status: 'FAIL', detail: 'Pages 101-114 will be stripped by evaluators' },
+                            { clause: 'Gate #3: Incomplete Pricing Schedule', status: 'FAIL', detail: 'Non-responsive commercial volume' }
+                        ]
+                    }
+                }
+            },
+            {
+                id: 'final_approval',
+                code: '06',
+                stageTag: 'STAGE 06 // SUBMISSION GATE',
+                name: 'Final Approval / Compliance Score',
+                shortName: '6. Final Score & Seal',
+                position: { x: 15.5, y: 0.5, z: 2 },
+                color: 0x10b981, // Emerald
+                geometryType: 'torus_beacon',
+                description: 'Computes the weighted composite Bid Compliance Score, seals the immutable audit trail matrix, and issues Executive Gate Release.',
+                scenarios: {
+                    compliant: {
+                        status: '98.4% — Certified for Submission',
+                        state: 'pass',
+                        latency: '11ms',
+                        kpis: [
+                            { label: 'Composite Score', value: '98.4% (Grade A+)' },
+                            { label: 'Gate Decision', value: 'AUTO-APPROVED' },
+                            { label: 'Compliance Matrix', value: 'Exported & Sealed' },
+                            { label: 'Audit Hash', value: '0x9F4C...82E1' }
+                        ],
+                        checks: [
+                            { clause: 'Technical Compliance Score (99.1%)', status: 'PASS', detail: 'Exceeds 95% corporate release threshold' },
+                            { clause: 'Commercial & Legal Sign-Off (97.6%)', status: 'PASS', detail: 'CFO & General Counsel digital seal applied' },
+                            { clause: 'Final Submission Package Bundle', status: 'PASS', detail: 'Ready for Government / Enterprise Portal upload' }
+                        ]
+                    },
+                    conditional: {
+                        status: '79.5% — Conditional Hold (Review Req)',
+                        state: 'warn',
+                        latency: '19ms',
+                        kpis: [
+                            { label: 'Composite Score', value: '79.5% (Grade C+)' },
+                            { label: 'Gate Decision', value: 'VP ESCALATION' },
+                            { label: 'Waivers Required', value: '2 Commercial' },
+                            { label: 'Submission Readiness', value: 'Pending Fixes' }
+                        ],
+                        checks: [
+                            { clause: 'Minimum Release Threshold (85.0%)', status: 'WARN', detail: 'Below auto-approve gate by 5.5 points' },
+                            { clause: 'Remediation ETA Estimate', status: 'WARN', detail: '~2.5 hours required to resolve 6 warnings' },
+                            { clause: 'Mandatory Knock-Out Gates', status: 'PASS', detail: 'No fatal disqualifiers present' }
+                        ]
+                    },
+                    noncompliant: {
+                        status: '41.2% — SUBMISSION BLOCKED',
+                        state: 'fail',
+                        latency: '14ms',
+                        kpis: [
+                            { label: 'Composite Score', value: '41.2% (REJECTED)' },
+                            { label: 'Gate Decision', value: 'HARD STOP LOCK' },
+                            { label: 'Fatal Deficiencies', value: '18 Unresolved' },
+                            { label: 'Portal Dispatch', value: 'LOCKED' }
+                        ],
+                        checks: [
+                            { clause: 'Automated Submission Interlock', status: 'FAIL', detail: 'Portal export locked due to fatal gate failures' },
+                            { clause: 'Red Team Escalation Triggered', status: 'FAIL', detail: 'Deficiency dossier dispatched to Bid Director' },
+                            { clause: 'Compliance Matrix Certification', status: 'FAIL', detail: 'Cannot certify non-responsive bid package' }
+                        ]
+                    }
+                }
+            }
+        ];
+
+        // Directed workflow connections between nodes
+        const WORKFLOW_EDGES = [
+            { from: 'rfp_ingestion', to: 'req_extraction', label: 'Parsed RFP DOM & Clauses' },
+            { from: 'req_extraction', to: 'verification_engine', label: '142 Mandatory Rule Vectors' },
+            { from: 'bid_upload', to: 'verification_engine', label: 'Proposal Volumes & Certs' },
+            { from: 'verification_engine', to: 'risk_analysis', label: 'Verification Telemetry' },
+            { from: 'risk_analysis', to: 'final_approval', label: 'Risk-Adjusted Matrix' },
+            { from: 'verification_engine', to: 'final_approval', label: 'Direct Compliance Seal' }
+        ];
+
+        // Global State
+        let currentScenario = 'compliant'; // 'compliant' | 'conditional' | 'noncompliant'
+        let selectedNodeId = 'verification_engine';
+        let flowSpeedMultiplier = 1.0;
+        let autoRotateEnabled = false;
+
+        // ============================================================================
+        // 2. THREE.JS SCENE, CAMERA, LIGHTS & CUSTOM ORBIT CONTROLLER
+        // ============================================================================
+        const container = document.getElementById('canvas-container');
+        const labelsContainer = document.getElementById('labels-container');
+
+        const scene = new THREE.Scene();
+        scene.fog = new THREE.FogExp2(0x060a12, 0.016);
+
+        const camera = new THREE.PerspectiveCamera(48, window.innerWidth / window.innerHeight, 0.1, 250);
+
+        const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+        renderer.toneMapping = THREE.ACESFilmicToneMapping;
+        renderer.toneMappingExposure = 1.15;
+        container.appendChild(renderer.domElement);
+
+        // Camera Spherical Coordinates for smooth Orbit & Target Lerping
+        const cameraState = {
+            theta: 0.12,
+            phi: 1.18,
+            radius: 31,
+            target: new THREE.Vector3(0, 1.2, 0),
+            desiredTarget: new THREE.Vector3(0, 1.2, 0),
+            desiredRadius: 31,
+            isDragging: false,
+            isPanning: false,
+            prevMouse: { x: 0, y: 0 }
+        };
+
+        function updateCameraPosition() {
+            cameraState.target.lerp(cameraState.desiredTarget, 0.08);
+            cameraState.radius += (cameraState.desiredRadius - cameraState.radius) * 0.08;
+
+            const sinPhi = Math.sin(cameraState.phi);
+            const x = cameraState.target.x + cameraState.radius * sinPhi * Math.sin(cameraState.theta);
+            const y = cameraState.target.y + cameraState.radius * Math.cos(cameraState.phi);
+            const z = cameraState.target.z + cameraState.radius * sinPhi * Math.cos(cameraState.theta);
+
+            camera.position.set(x, y, z);
+            camera.lookAt(cameraState.target);
+        }
+
+        // Lighting Setup
+        const ambientLight = new THREE.AmbientLight(0x1e293b, 2.2);
+        scene.add(ambientLight);
+
+        const topLight = new THREE.DirectionalLight(0x38bdf8, 1.8);
+        topLight.position.set(15, 30, 20);
+        scene.add(topLight);
+
+        const corePointLight = new THREE.PointLight(0x0ea5e9, 3.5, 45);
+        corePointLight.position.set(0, 2, 0);
+        scene.add(corePointLight);
+
+        const accentLightRight = new THREE.PointLight(0x10b981, 2.5, 40);
+        accentLightRight.position.set(16, 2, 3);
+        scene.add(accentLightRight);
+
+        // Cybernetic Floor Grid & Environment Ring
+        const gridGroup = new THREE.Group();
+        const gridHelper = new THREE.GridHelper(70, 70, 0x1e3a8a, 0x0f172a);
+        gridHelper.position.y = -7.5;
+        gridGroup.add(gridHelper);
+
+        // Subtle Concentric Radar Rings on Floor
+        [10, 18, 26].forEach((radius, idx) => {
+            const ringGeo = new THREE.RingGeometry(radius, radius + 0.08, 96);
+            ringGeo.rotateX(-Math.PI / 2);
+            const ringMat = new THREE.MeshBasicMaterial({
+                color: idx === 1 ? 0x38bdf8 : 0x1e293b,
+                side: THREE.DoubleSide,
+                transparent: true,
+                opacity: idx === 1 ? 0.35 : 0.25
+            });
+            const ringMesh = new THREE.Mesh(ringGeo, ringMat);
+            ringMesh.position.y = -7.45;
+            gridGroup.add(ringMesh);
+        });
+        scene.add(gridGroup);
+
+        // Ambient Starfield / Data Dust Particles
+        const dustCount = 450;
+        const dustGeo = new THREE.BufferGeometry();
+        const dustPositions = new Float32Array(dustCount * 3);
+        for (let i = 0; i < dustCount * 3; i += 3) {
+            dustPositions[i] = (Math.random() - 0.5) * 80;
+            dustPositions[i + 1] = (Math.random() - 0.5) * 40;
+            dustPositions[i + 2] = (Math.random() - 0.5) * 60;
+        }
+        dustGeo.setAttribute('position', new THREE.BufferAttribute(dustPositions, 3));
+        const dustMat = new THREE.PointsMaterial({
+            color: 0x38bdf8,
+            size: 0.16,
+            transparent: true,
+            opacity: 0.45
+        });
+        const dustSystem = new THREE.Points(dustGeo, dustMat);
+        scene.add(dustSystem);
+
+        // ============================================================================
+        // 3. BUILD 3D WORKFLOW NODES & HOLOGRAPHIC ASSEMBLIES
+        // ============================================================================
+        const nodeMeshesMap = new Map(); // id -> { group, coreMesh, shellMesh, ringMesh, haloMesh, labelEl, data }
+        const clickableMeshes = [];
+
+        function createNodeAssembly(nodeData) {
+            const group = new THREE.Group();
+            group.position.set(nodeData.position.x, nodeData.position.y, nodeData.position.z);
+
+            const isCoreEngine = nodeData.id === 'verification_engine';
+            const baseScale = isCoreEngine ? 1.55 : 1.0;
+
+            // Core Primary Geometry based on stage role
+            let coreGeo;
+            switch (nodeData.geometryType) {
+                case 'octahedron':
+                    coreGeo = new THREE.OctahedronGeometry(1.25, 1);
+                    break;
+                case 'icosahedron':
+                    coreGeo = new THREE.IcosahedronGeometry(1.25, 1);
+                    break;
+                case 'cylinder':
+                    coreGeo = new THREE.CylinderGeometry(1.0, 1.0, 1.8, 24);
+                    break;
+                case 'core_reactor':
+                    coreGeo = new THREE.IcosahedronGeometry(1.6, 2);
+                    break;
+                case 'dodecahedron':
+                    coreGeo = new THREE.DodecahedronGeometry(1.3, 0);
+                    break;
+                case 'torus_beacon':
+                    coreGeo = new THREE.OctahedronGeometry(1.35, 2);
+                    break;
+                default:
+                    coreGeo = new THREE.SphereGeometry(1.2, 24, 24);
+            }
+
+            const coreMat = new THREE.MeshStandardMaterial({
+                color: nodeData.color,
+                emissive: nodeData.color,
+                emissiveIntensity: 0.55,
+                roughness: 0.2,
+                metalness: 0.75,
+                flatShading: true
+            });
+            const coreMesh = new THREE.Mesh(coreGeo, coreMat);
+            coreMesh.userData = { nodeId: nodeData.id };
+            group.add(coreMesh);
+            clickableMeshes.push(coreMesh);
+
+            // Outer Wireframe Lattice Shell
+            const shellGeo = coreGeo.clone();
+            const shellMat = new THREE.MeshBasicMaterial({
+                color: 0xffffff,
+                wireframe: true,
+                transparent: true,
+                opacity: 0.28
+            });
+            const shellMesh = new THREE.Mesh(shellGeo, shellMat);
+            shellMesh.scale.setScalar(1.22);
+            group.add(shellMesh);
+
+            // Rotating Orbital Telemetry Ring
+            const ringGeo = new THREE.TorusGeometry(1.9 * baseScale, 0.045, 16, 64);
+            ringGeo.rotateX(Math.PI / 2);
+            const ringMat = new THREE.MeshBasicMaterial({
+                color: nodeData.color,
+                transparent: true,
+                opacity: 0.75
+            });
+            const ringMesh = new THREE.Mesh(ringGeo, ringMat);
+            group.add(ringMesh);
+
+            // Secondary Tilted Gyro Ring for Core & Final Approval
+            let gyroMesh = null;
+            if (isCoreEngine || nodeData.id === 'final_approval') {
+                const gyroGeo = new THREE.TorusGeometry(2.35 * baseScale, 0.035, 16, 64);
+                const gyroMat = new THREE.MeshBasicMaterial({
+                    color: 0x38bdf8,
+                    transparent: true,
+                    opacity: 0.45
+                });
+                gyroMesh = new THREE.Mesh(gyroGeo, gyroMat);
+                gyroMesh.rotation.x = Math.PI / 3;
+                gyroMesh.rotation.y = Math.PI / 6;
+                group.add(gyroMesh);
+            }
+
+            // Selection Halo Ring (highlighted when node is selected)
+            const haloGeo = new THREE.RingGeometry(2.15 * baseScale, 2.4 * baseScale, 48);
+            haloGeo.rotateX(-Math.PI / 2);
+            const haloMat = new THREE.MeshBasicMaterial({
+                color: 0xffffff,
+                side: THREE.DoubleSide,
+                transparent: true,
+                opacity: 0.0
+            });
+            const haloMesh = new THREE.Mesh(haloGeo, haloMat);
+            haloMesh.position.y = -1.55 * baseScale;
+            group.add(haloMesh);
+
+            // Vertical Pedestal Drop-Line to Floor Grid
+            const dropPoints = [
+                new THREE.Vector3(0, -1.4 * baseScale, 0),
+                new THREE.Vector3(0, -7.45 - nodeData.position.y, 0)
+            ];
+            const dropGeo = new THREE.BufferGeometry().setFromPoints(dropPoints);
+            const dropMat = new THREE.LineBasicMaterial({
+                color: nodeData.color,
+                transparent: true,
+                opacity: 0.22
+            });
+            const dropLine = new THREE.Line(dropGeo, dropMat);
+            group.add(dropLine);
+
+            // Create Floating HTML 3D Label
+            const labelEl = document.createElement('div');
+            labelEl.className = 'node-label pointer-events-auto cursor-pointer select-none';
+            labelEl.onclick = () => selectNode(nodeData.id, true);
+            labelEl.innerHTML = `
+                <div id="label-card-${nodeData.id}" class="px-2.5 py-1.5 rounded-xl hud-glass transition-all duration-200 flex items-center gap-2 border border-slate-700/80 shadow-lg">
+                    <span id="label-dot-${nodeData.id}" class="w-2 h-2 rounded-full bg-emerald-400"></span>
+                    <div class="text-left">
+                        <div class="text-[10px] font-bold uppercase tracking-wider text-sky-400 mono leading-none">STAGE ${nodeData.code}</div>
+                        <div class="text-xs font-semibold text-white whitespace-nowrap">${nodeData.shortName.split('. ')[1]}</div>
+                    </div>
+                    <span id="label-badge-${nodeData.id}" class="ml-1 px-1.5 py-0.5 text-[10px] font-bold rounded bg-emerald-500/20 text-emerald-300 mono">PASS</span>
+                </div>
+            `;
+            labelsContainer.appendChild(labelEl);
+
+            scene.add(group);
+            nodeMeshesMap.set(nodeData.id, {
+                group,
+                coreMesh,
+                shellMesh,
+                ringMesh,
+                gyroMesh,
+                haloMesh,
+                labelEl,
+                data: nodeData
+            });
+        }
+
+        WORKFLOW_NODES.forEach(createNodeAssembly);
+
+        // ============================================================================
+        // 4. DATA CONDUITS (SPLINES) & ANIMATED DATA PACKETS
+        // ============================================================================
+        const conduitCurves = []; // { edge, curve, tubeMesh, packets: [] }
+        const packetGroup = new THREE.Group();
+        scene.add(packetGroup);
+
+        function buildConduitsAndPackets() {
+            WORKFLOW_EDGES.forEach((edge, edgeIdx) => {
+                const fromNode = WORKFLOW_NODES.find(n => n.id === edge.from);
+                const toNode = WORKFLOW_NODES.find(n => n.id === edge.to);
+
+                const startVec = new THREE.Vector3(fromNode.position.x, fromNode.position.y, fromNode.position.z);
+                const endVec = new THREE.Vector3(toNode.position.x, toNode.position.y, toNode.position.z);
+
+                // Compute elevated arc control points for clean 3D routing
+                const midVec = new THREE.Vector3().addVectors(startVec, endVec).multiplyScalar(0.5);
+                midVec.y += (edgeIdx % 2 === 0 ? 2.2 : -1.6);
+                midVec.z += (edgeIdx % 2 === 0 ? -1.5 : 1.5);
+
+                const curve = new THREE.CatmullRomCurve3([startVec, midVec, endVec]);
+
+                // Translucent Conduit Tube
+                const tubeGeo = new THREE.TubeGeometry(curve, 48, 0.07, 8, false);
+                const tubeMat = new THREE.MeshBasicMaterial({
+                    color: 0x38bdf8,
+                    transparent: true,
+                    opacity: 0.25
+                });
+                const tubeMesh = new THREE.Mesh(tubeGeo, tubeMat);
+                scene.add(tubeMesh);
+
+                // Create Animated Data Packets along this curve
+                const packets = [];
+                const packetCount = 5;
+                for (let i = 0; i < packetCount; i++) {
+                    const pktGeo = new THREE.SphereGeometry(0.24, 12, 12);
+                    const pktMat = new THREE.MeshBasicMaterial({
+                        color: 0x34d399
+                    });
+                    const pktMesh = new THREE.Mesh(pktGeo, pktMat);
+
+                    // Add glowing trail halo around each packet
+                    const glowGeo = new THREE.SphereGeometry(0.45, 10, 10);
+                    const glowMat = new THREE.MeshBasicMaterial({
+                        color: 0x34d399,
+                        transparent: true,
+                        opacity: 0.35
+                    });
+                    const glowMesh = new THREE.Mesh(glowGeo, glowMat);
+                    pktMesh.add(glowMesh);
+
+                    packetGroup.add(pktMesh);
+                    packets.push({
+                        mesh: pktMesh,
+                        glowMat: glowMat,
+                        t: i / packetCount,
+                        baseSpeed: 0.0028 + Math.random() * 0.0012,
+                        edgeIndex: edgeIdx
+                    });
+                }
+
+                conduitCurves.push({
+                    edge,
+                    curve,
+                    tubeMesh,
+                    packets
+                });
+            });
+        }
+
+        buildConduitsAndPackets();
+
+        // ============================================================================
+        // 5. UI SYNCHRONIZATION, SCENARIO ENGINE & TELEMETRY INSPECTOR
+        // ============================================================================
+        const STATE_COLORS = {
+            pass: {
+                hex: 0x10b981,
+                packetHex: 0x34d399,
+                conduitHex: 0x38bdf8,
+                badgeText: 'PASS',
+                badgeClass: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30',
+                dotClass: 'bg-emerald-400'
+            },
+            warn: {
+                hex: 0xf59e0b,
+                packetHex: 0xfbbf24,
+                conduitHex: 0xf59e0b,
+                badgeText: 'WARN',
+                badgeClass: 'bg-amber-500/20 text-amber-300 border-amber-500/30',
+                dotClass: 'bg-amber-400'
+            },
+            fail: {
+                hex: 0xf43f5e,
+                packetHex: 0xfb7185,
+                conduitHex: 0xf43f5e,
+                badgeText: 'FAIL',
+                badgeClass: 'bg-rose-500/20 text-rose-300 border-rose-500/30',
+                dotClass: 'bg-rose-500'
+            }
+        };
+
+        function renderLeftStageDirectory() {
+            const listEl = document.getElementById('stage-list');
+            listEl.innerHTML = '';
+
+            WORKFLOW_NODES.forEach(node => {
+                const scen = node.scenarios[currentScenario];
+                const stStyle = STATE_COLORS[scen.state];
+                const isSelected = node.id === selectedNodeId;
+
+                const item = document.createElement('button');
+                item.className = `w-full text-left p-2.5 rounded-xl transition-all flex items-center justify-between border ${
+                    isSelected
+                        ? 'bg-sky-500/20 border-sky-400/60 shadow-md'
+                        : 'bg-slate-900/50 border-slate-800/70 hover:bg-slate-800/60'
+                }`;
+                item.onclick = () => selectNode(node.id, true);
+
+                item.innerHTML = `
+                    <div class="flex items-center gap-2.5 min-w-0">
+                        <span class="w-6 h-6 rounded-lg flex items-center justify-center text-[11px] font-bold mono ${
+                            isSelected ? 'bg-sky-400 text-slate-950' : 'bg-slate-800 text-slate-300'
+                        }">${node.code}</span>
+                        <div class="truncate">
+                            <div class="text-xs font-semibold text-white truncate">${node.name}</div>
+                            <div class="text-[10px] text-slate-400 truncate">${scen.status}</div>
+                        </div>
+                    </div>
+                    <span class="ml-2 px-1.5 py-0.5 text-[10px] font-bold rounded border mono ${stStyle.badgeClass}">${stStyle.badgeText}</span>
+                `;
+                listEl.appendChild(item);
+            });
+        }
+
+        function updateNode3DVisualsForScenario() {
+            WORKFLOW_NODES.forEach(node => {
+                const entry = nodeMeshesMap.get(node.id);
+                if (!entry) return;
+
+                const scen = node.scenarios[currentScenario];
+                const stStyle = STATE_COLORS[scen.state];
+
+                // Update 3D Node Core & Ring Colors based on compliance status
+                const displayColor = currentScenario === 'compliant' ? node.color : stStyle.hex;
+                entry.coreMesh.material.color.setHex(displayColor);
+                entry.coreMesh.material.emissive.setHex(displayColor);
+                entry.ringMesh.material.color.setHex(displayColor);
+
+                // Update Floating 3D HTML Label Badge
+                const dotEl = document.getElementById(`label-dot-${node.id}`);
+                const badgeEl = document.getElementById(`label-badge-${node.id}`);
+                const cardEl = document.getElementById(`label-card-${node.id}`);
+
+                if (dotEl && badgeEl && cardEl) {
+                    dotEl.className = `w-2 h-2 rounded-full ${stStyle.dotClass}`;
+                    badgeEl.className = `ml-1 px-1.5 py-0.5 text-[10px] font-bold rounded mono ${stStyle.badgeClass}`;
+                    badgeEl.textContent = stStyle.badgeText;
+
+                    if (node.id === selectedNodeId) {
+                        cardEl.classList.add('ring-2', 'ring-sky-400', 'scale-105');
+                    } else {
+                        cardEl.classList.remove('ring-2', 'ring-sky-400', 'scale-105');
+                    }
+                }
+
+                // Update Selection Halo opacity
+                entry.haloMesh.material.opacity = node.id === selectedNodeId ? 0.75 : 0.0;
+            });
+
+            // Update Conduits & Packet colors based on scenario and stage progression
+            conduitCurves.forEach((conduit, idx) => {
+                const targetNode = WORKFLOW_NODES.find(n => n.id === conduit.edge.to);
+                const targetScen = targetNode.scenarios[currentScenario];
+                const stStyle = STATE_COLORS[targetScen.state];
+
+                conduit.tubeMesh.material.color.setHex(stStyle.conduitHex);
+                conduit.packets.forEach(pkt => {
+                    pkt.mesh.material.color.setHex(stStyle.packetHex);
+                    pkt.glowMat.color.setHex(stStyle.packetHex);
+                });
+            });
+
+            // Update Core PointLights
+            if (currentScenario === 'compliant') {
+                corePointLight.color.setHex(0x0ea5e9);
+                accentLightRight.color.setHex(0x10b981);
+            } else if (currentScenario === 'conditional') {
+                corePointLight.color.setHex(0xf59e0b);
+                accentLightRight.color.setHex(0xfbbf24);
+            } else {
+                corePointLight.color.setHex(0xf43f5e);
+                accentLightRight.color.setHex(0xe11d48);
+            }
+        }
+
+        function updateGlobalExecutiveScoreCard() {
+            const scoreEl = document.getElementById('metric-global-score');
+            const clausesEl = document.getElementById('metric-clauses-count');
+            const barEl = document.getElementById('bar-global-score');
+            const decisionEl = document.getElementById('badge-decision');
+            const risksEl = document.getElementById('metric-risks');
+            const pulseEl = document.getElementById('system-pulse');
+
+            if (currentScenario === 'compliant') {
+                scoreEl.textContent = '98.4%';
+                scoreEl.className = 'text-3xl font-extrabold text-emerald-400 mono';
+                clausesEl.textContent = '142 / 142 Met';
+                barEl.style.width = '98.4%';
+                barEl.className = 'h-full bg-gradient-to-r from-sky-400 to-emerald-400 transition-all duration-500';
+                decisionEl.textContent = 'AUTO-APPROVED';
+                decisionEl.className = 'px-2 py-0.5 text-[10px] font-bold uppercase rounded bg-emerald-500/20 text-emerald-300 border border-emerald-400/30 mono';
+                risksEl.textContent = '0 Found';
+                risksEl.className = 'text-xs font-bold text-emerald-400 mono';
+                pulseEl.className = 'absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full bg-emerald-400 pulse-dot';
+            } else if (currentScenario === 'conditional') {
+                scoreEl.textContent = '79.5%';
+                scoreEl.className = 'text-3xl font-extrabold text-amber-400 mono';
+                clausesEl.textContent = '131 / 142 Met';
+                barEl.style.width = '79.5%';
+                barEl.className = 'h-full bg-gradient-to-r from-amber-500 to-yellow-400 transition-all duration-500';
+                decisionEl.textContent = 'REVIEW HOLD';
+                decisionEl.className = 'px-2 py-0.5 text-[10px] font-bold uppercase rounded bg-amber-500/20 text-amber-300 border border-amber-400/30 mono';
+                risksEl.textContent = '6 Warnings';
+                risksEl.className = 'text-xs font-bold text-amber-400 mono';
+                pulseEl.className = 'absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full bg-amber-400 pulse-dot';
+            } else {
+                scoreEl.textContent = '41.2%';
+                scoreEl.className = 'text-3xl font-extrabold text-rose-500 mono';
+                clausesEl.textContent = '110 / 142 Met';
+                barEl.style.width = '41.2%';
+                barEl.className = 'h-full bg-gradient-to-r from-rose-600 to-orange-500 transition-all duration-500';
+                decisionEl.textContent = 'GATE BLOCKED';
+                decisionEl.className = 'px-2 py-0.5 text-[10px] font-bold uppercase rounded bg-rose-500/20 text-rose-300 border border-rose-500/30 mono';
+                risksEl.textContent = '18 Fatal';
+                risksEl.className = 'text-xs font-bold text-rose-400 mono';
+                pulseEl.className = 'absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full bg-rose-500 pulse-dot';
+            }
+        }
+
+        function renderInspectorPanel() {
+            const node = WORKFLOW_NODES.find(n => n.id === selectedNodeId);
+            if (!node) return;
+            const scen = node.scenarios[currentScenario];
+            const stStyle = STATE_COLORS[scen.state];
+
+            document.getElementById('inspector-icon-box').textContent = node.code;
+            document.getElementById('inspector-stage-tag').textContent = node.stageTag;
+            document.getElementById('inspector-title').textContent = node.name;
+            document.getElementById('inspector-desc').textContent = node.description;
+            document.getElementById('inspector-latency').textContent = scen.latency;
+
+            const statusBox = document.getElementById('inspector-status-box');
+            const statusDot = document.getElementById('inspector-status-dot');
+            const statusText = document.getElementById('inspector-status-text');
+
+            if (scen.state === 'pass') {
+                statusBox.className = 'p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-between';
+                statusDot.className = 'w-2.5 h-2.5 rounded-full bg-emerald-400 pulse-dot';
+                statusText.className = 'font-semibold text-emerald-300';
+            } else if (scen.state === 'warn') {
+                statusBox.className = 'p-3 rounded-xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-between';
+                statusDot.className = 'w-2.5 h-2.5 rounded-full bg-amber-400 pulse-dot';
+                statusText.className = 'font-semibold text-amber-300';
+            } else {
+                statusBox.className = 'p-3 rounded-xl bg-rose-500/10 border border-rose-500/30 flex items-center justify-between';
+                statusDot.className = 'w-2.5 h-2.5 rounded-full bg-rose-500 pulse-dot';
+                statusText.className = 'font-semibold text-rose-300';
+            }
+            statusText.textContent = scen.status;
+
+            // Populate KPI Cards
+            const kpisContainer = document.getElementById('inspector-kpis');
+            kpisContainer.innerHTML = scen.kpis.map(kpi => `
+                <div class="p-2.5 rounded-xl bg-slate-900/80 border border-slate-800">
+                    <div class="text-[10px] text-slate-400">${kpi.label}</div>
+                    <div class="text-xs font-bold text-white mono mt-0.5">${kpi.value}</div>
+                </div>
+            `).join('');
+
+            // Populate Clause Checks
+            const checksContainer = document.getElementById('inspector-checks');
+            checksContainer.innerHTML = scen.checks.map(chk => {
+                let badgeCls = 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30';
+                if (chk.status === 'WARN') badgeCls = 'bg-amber-500/20 text-amber-300 border-amber-500/30';
+                if (chk.status === 'FAIL') badgeCls = 'bg-rose-500/20 text-rose-300 border-rose-500/30';
+
+                return `
+                    <div class="p-2.5 rounded-xl bg-slate-900/60 border border-slate-800/90">
+                        <div class="flex items-center justify-between gap-2">
+                            <span class="font-semibold text-slate-200">${chk.clause}</span>
+                            <span class="px-1.5 py-0.5 text-[10px] font-bold rounded border mono ${badgeCls}">${chk.status}</span>
+                        </div>
+                        <div class="text-[11px] text-slate-400 mt-1">${chk.detail}</div>
+                    </div>
+                `;
+            }).join('');
+
+            appendLogLine(`[STAGE_${node.code}] Selected "${node.shortName}" — Status: ${scen.state.toUpperCase()}`);
+        }
+
+        function appendLogLine(message) {
+            const consoleEl = document.getElementById('live-log-console');
+            if (!consoleEl) return;
+            const now = new Date();
+            const ts = now.toTimeString().split(' ')[0] + '.' + String(now.getMilliseconds()).padStart(3, '0');
+            const line = document.createElement('div');
+            line.className = 'truncate';
+            line.innerHTML = `<span class="text-slate-500">${ts}</span> <span class="text-sky-400">&gt;</span> ${message}`;
+            consoleEl.appendChild(line);
+            while (consoleEl.children.length > 18) {
+                consoleEl.removeChild(consoleEl.firstChild);
+            }
+            consoleEl.scrollTop = consoleEl.scrollHeight;
+        }
+
+        // Scenario Switcher
+        function setScenario(mode) {
+            currentScenario = mode;
+
+            // Update Mode Buttons UI
+            const btnCompliant = document.getElementById('btn-mode-compliant');
+            const btnWarning = document.getElementById('btn-mode-warning');
+            const btnNonCompliant = document.getElementById('btn-mode-noncompliant');
+
+            const inactiveCls = 'flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all text-slate-400 hover:text-slate-200 border border-transparent';
+
+            btnCompliant.className = mode === 'compliant'
+                ? 'flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 shadow-sm'
+                : inactiveCls;
+
+            btnWarning.className = mode === 'conditional'
+                ? 'flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all bg-amber-500/20 text-amber-300 border border-amber-500/40 shadow-sm'
+                : inactiveCls;
+
+            btnNonCompliant.className = mode === 'noncompliant'
+                ? 'flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all bg-rose-500/20 text-rose-300 border border-rose-500/40 shadow-sm'
+                : inactiveCls;
+
+            updateGlobalExecutiveScoreCard();
+            renderLeftStageDirectory();
+            updateNode3DVisualsForScenario();
+            renderInspectorPanel();
+
+            appendLogLine(`Simulation switched to [${mode.toUpperCase()}] pipeline profile.`);
+        }
+
+        function selectNode(nodeId, smoothFocus = false) {
+            selectedNodeId = nodeId;
+            renderLeftStageDirectory();
+            updateNode3DVisualsForScenario();
+            renderInspectorPanel();
+
+            if (smoothFocus) {
+                const node = WORKFLOW_NODES.find(n => n.id === nodeId);
+                if (node) {
+                    cameraState.desiredTarget.set(node.position.x * 0.45, node.position.y * 0.45, node.position.z * 0.45);
+                }
+            }
+        }
+
+        function focusCameraOnNode(nodeId) {
+            const node = WORKFLOW_NODES.find(n => n.id === nodeId);
+            if (!node) return;
+            cameraState.desiredTarget.set(node.position.x, node.position.y, node.position.z);
+            cameraState.desiredRadius = 14;
+            appendLogLine(`Camera locked onto Stage ${node.code} (${node.shortName}).`);
+        }
+
+        function resetCameraView() {
+            cameraState.desiredTarget.set(0, 1.2, 0);
+            cameraState.desiredRadius = 31;
+            cameraState.theta = 0.12;
+            cameraState.phi = 1.18;
+            appendLogLine('Camera reset to global workflow overview.');
+        }
+
+        function cycleSelectedNode(direction) {
+            const idx = WORKFLOW_NODES.findIndex(n => n.id === selectedNodeId);
+            const nextIdx = (idx + direction + WORKFLOW_NODES.length) % WORKFLOW_NODES.length;
+            selectNode(WORKFLOW_NODES[nextIdx].id, true);
+        }
+
+        function triggerBurstInspection() {
+            const previousSpeed = flowSpeedMultiplier;
+            flowSpeedMultiplier = 2.8;
+            document.getElementById('slider-speed').value = 2.5;
+            appendLogLine('Injected high-priority RFP/Bid verification batch (142 clauses)...');
+
+            // Pulse all nodes
+            nodeMeshesMap.forEach(entry => {
+                entry.group.scale.setScalar(1.28);
+            });
+
+            setTimeout(() => {
+                flowSpeedMultiplier = previousSpeed;
+                document.getElementById('slider-speed').value = previousSpeed;
+                appendLogLine('Batch verification complete. Compliance matrix updated.');
+            }, 1800);
+        }
+
+        function toggleAutoRotate(enabled) {
+            autoRotateEnabled = enabled;
+        }
+
+        function updateFlowSpeed(val) {
+            flowSpeedMultiplier = parseFloat(val);
+        }
+
+        function toggleInspectorMobile() {
+            const panel = document.getElementById('inspector-panel');
+            panel.classList.toggle('hidden');
+        }
+
+        // ============================================================================
+        // 6. MOUSE, TOUCH & RAYCASTER INTERACTION HANDLERS
+        // ============================================================================
+        const raycaster = new THREE.Raycaster();
+        const mouseVec = new THREE.Vector2();
+        let pointerDownPos = { x: 0, y: 0 };
+
+        renderer.domElement.addEventListener('mousedown', (e) => {
+            pointerDownPos = { x: e.clientX, y: e.clientY };
+            if (e.button === 2 || e.shiftKey) {
+                cameraState.isPanning = true;
+            } else {
+                cameraState.isDragging = true;
+            }
+            cameraState.prevMouse = { x: e.clientX, y: e.clientY };
+        });
+
+        window.addEventListener('mousemove', (e) => {
+            // Hover cursor feedback over 3D nodes
+            if (!cameraState.isDragging && !cameraState.isPanning) {
+                mouseVec.x = (e.clientX / window.innerWidth) * 2 - 1;
+                mouseVec.y = -(e.clientY / window.innerHeight) * 2 + 1;
+                raycaster.setFromCamera(mouseVec, camera);
+                const hits = raycaster.intersectObjects(clickableMeshes, false);
+                renderer.domElement.style.cursor = hits.length > 0 ? 'pointer' : 'grab';
+                return;
+            }
+
+            const dx = e.clientX - cameraState.prevMouse.x;
+            const dy = e.clientY - cameraState.prevMouse.y;
+            cameraState.prevMouse = { x: e.clientX, y: e.clientY };
+
+            if (cameraState.isDragging) {
+                renderer.domElement.style.cursor = 'grabbing';
+                cameraState.theta -= dx * 0.0065;
+                cameraState.phi = Math.max(0.25, Math.min(Math.PI / 2 - 0.04, cameraState.phi - dy * 0.0065));
+            } else if (cameraState.isPanning) {
+                const panScale = cameraState.radius * 0.0015;
+                cameraState.desiredTarget.x -= dx * panScale;
+                cameraState.desiredTarget.y += dy * panScale;
+            }
+        });
+
+        window.addEventListener('mouseup', (e) => {
+            const moveDist = Math.hypot(e.clientX - pointerDownPos.x, e.clientY - pointerDownPos.y);
+            cameraState.isDragging = false;
+            cameraState.isPanning = false;
+            renderer.domElement.style.cursor = 'grab';
+
+            // Detect clean click on a 3D workflow node
+            if (moveDist < 6 && e.target === renderer.domElement) {
+                mouseVec.x = (e.clientX / window.innerWidth) * 2 - 1;
+                mouseVec.y = -(e.clientY / window.innerHeight) * 2 + 1;
+                raycaster.setFromCamera(mouseVec, camera);
+                const intersects = raycaster.intersectObjects(clickableMeshes, false);
+                if (intersects.length > 0) {
+                    const hitNodeId = intersects[0].object.userData.nodeId;
+                    if (hitNodeId) {
+                        selectNode(hitNodeId, true);
+                        const panel = document.getElementById('inspector-panel');
+                        panel.classList.remove('hidden');
+                    }
+                }
+            }
+        });
+
+        renderer.domElement.addEventListener('contextmenu', e => e.preventDefault());
+
+        renderer.domElement.addEventListener('wheel', (e) => {
+            e.preventDefault();
+            cameraState.desiredRadius = Math.max(10, Math.min(62, cameraState.desiredRadius + e.deltaY * 0.025));
+        }, { passive: false });
+
+        // Touch Support for Mobile / Tablet
+        renderer.domElement.addEventListener('touchstart', (e) => {
+            if (e.touches.length === 1) {
+                cameraState.isDragging = true;
+                pointerDownPos = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+                cameraState.prevMouse = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+            }
+        }, { passive: true });
+
+        renderer.domElement.addEventListener('touchmove', (e) => {
+            if (cameraState.isDragging && e.touches.length === 1) {
+                const dx = e.touches[0].clientX - cameraState.prevMouse.x;
+                const dy = e.touches[0].clientY - cameraState.prevMouse.y;
+                cameraState.prevMouse = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+                cameraState.theta -= dx * 0.0065;
+                cameraState.phi = Math.max(0.25, Math.min(Math.PI / 2 - 0.04, cameraState.phi - dy * 0.0065));
+            }
+        }, { passive: true });
+
+        renderer.domElement.addEventListener('touchend', (e) => {
+            cameraState.isDragging = false;
+        });
+
+        // Window Resize Handler
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+
+        // ============================================================================
+        // 7. 3D TO 2D HTML LABEL PROJECTION & ANIMATION LOOP
+        // ============================================================================
+        const tempProjVec = new THREE.Vector3();
+
+        function updateFloatingLabels() {
+            nodeMeshesMap.forEach((entry) => {
+                const isCore = entry.data.id === 'verification_engine';
+                tempProjVec.copy(entry.group.position);
+                tempProjVec.y += isCore ? 2.85 : 2.15;
+
+                tempProjVec.project(camera);
+
+                // Check if behind camera frustum
+                if (tempProjVec.z > 1) {
+                    entry.labelEl.style.opacity = '0';
+                    return;
+                }
+
+                const x = (tempProjVec.x * 0.5 + 0.5) * window.innerWidth;
+                const y = (-(tempProjVec.y * 0.5) + 0.5) * window.innerHeight;
+
+                entry.labelEl.style.opacity = '1';
+                entry.labelEl.style.left = `${x}px`;
+                entry.labelEl.style.top = `${y}px`;
+            });
+        }
+
+        // Periodic Telemetry Stream Generator
+        const SAMPLE_EVENTS = {
+            compliant: [
+                'Verified Sec L.4.1 page count constraint (94/100 pgs) -> PASS',
+                'Matched ISO-27001 artifact hash 0x88B1 against Clause #19 -> PASS',
+                'Cross-checked CLIN 0004 labor rate vs Staffing Matrix -> SYNCED',
+                'NLP Vector similarity 0.992 on Mandatory SLA Uptime Clause -> PASS',
+                'Zero disqualifying exceptions found in Legal Redline Annex -> PASS'
+            ],
+            conditional: [
+                'WARN: Diagram text size 8.5pt detected on Vol I pg 42 (Min 10pt)',
+                'WARN: P1 Incident SLA response proposed at 30m vs 15m RFP target',
+                'Auto-Remediation clause drafted for Section C.4.2 residency gap',
+                'Subcontractor Teaming Agreement #2 awaiting countersignature',
+                'Composite score holding at 79.5% — VP Bid Review required'
+            ],
+            noncompliant: [
+                'CRITICAL FAIL: FedRAMP High gate unmet (Bid cites Moderate)',
+                'BREACH: Technical Volume exceeds 100-page cap (114 pages)',
+                'FAIL: Uploaded ISO/IEC 27001 certificate expired 14 days ago',
+                'FAIL: 7 mandatory CLIN pricing cells blank in Commercial Workbook',
+                'INTERLOCK ENGAGED: Final submission portal lock active'
+            ]
+        };
+
+        setInterval(() => {
+            const pool = SAMPLE_EVENTS[currentScenario];
+            const msg = pool[Math.floor(Math.random() * pool.length)];
+            appendLogLine(msg);
+
+            // Subtle throughput jitter
+            const tpEl = document.getElementById('metric-throughput');
+            if (tpEl) {
+                const val = (44 + Math.random() * 9 * flowSpeedMultiplier).toFixed(1);
+                tpEl.textContent = `${val} MB/s`;
+            }
+        }, 2600);
+
+        const clock = new THREE.Clock();
+
+        function animate() {
+            requestAnimationFrame(animate);
+
+            const elapsed = clock.getElapsedTime();
+
+            if (autoRotateEnabled && !cameraState.isDragging) {
+                cameraState.theta += 0.0022;
+            }
+
+            updateCameraPosition();
+
+            // Animate 3D Workflow Nodes
+            let idx = 0;
+            nodeMeshesMap.forEach((entry) => {
+                // Smooth scale recovery after burst injection
+                entry.group.scale.lerp(new THREE.Vector3(1, 1, 1), 0.08);
+
+                // Gentle floating hover motion
+                entry.coreMesh.position.y = Math.sin(elapsed * 1.8 + idx) * 0.14;
+                entry.shellMesh.position.y = entry.coreMesh.position.y;
+
+                // Rotate core & wireframe shell
+                entry.coreMesh.rotation.y += 0.006 * flowSpeedMultiplier;
+                entry.coreMesh.rotation.x += 0.003 * flowSpeedMultiplier;
+                entry.shellMesh.rotation.y -= 0.004 * flowSpeedMultiplier;
+
+                // Rotate telemetry rings
+                entry.ringMesh.rotation.z = elapsed * 0.7 + idx;
+                if (entry.gyroMesh) {
+                    entry.gyroMesh.rotation.x += 0.012 * flowSpeedMultiplier;
+                    entry.gyroMesh.rotation.y += 0.009 * flowSpeedMultiplier;
+                }
+
+                // Pulse selected node halo
+                if (entry.data.id === selectedNodeId) {
+                    const pulse = 1 + Math.sin(elapsed * 4.5) * 0.08;
+                    entry.haloMesh.scale.set(pulse, pulse, 1);
+                }
+                idx++;
+            });
+
+            // Animate Data Packets flowing along Conduits
+            conduitCurves.forEach((conduit) => {
+                conduit.packets.forEach((pkt) => {
+                    pkt.t += pkt.baseSpeed * flowSpeedMultiplier;
+                    if (pkt.t > 1.0) pkt.t -= 1.0;
+
+                    const pos = conduit.curve.getPointAt(pkt.t);
+                    pkt.mesh.position.copy(pos);
+                });
+            });
+
+            // Slowly drift ambient dust
+            dustSystem.rotation.y = elapsed * 0.015;
+
+            updateFloatingLabels();
+            renderer.render(scene, camera);
+        }
+
+        // Start simulation on window load
+        window.onload = function () {
+            setScenario('compliant');
+            selectNode('verification_engine', false);
+            animate();
+        };
+    </script>
+</body>
+</html>
